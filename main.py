@@ -12,7 +12,7 @@ def midpoint(ptA, ptB):
 
 
 def show(name, var):
-    scale_percent = 20
+    scale_percent = 100
     width = int(var.shape[1] * scale_percent / 100)
     height = int(var.shape[0] * scale_percent / 100)
     dim = (width, height)
@@ -21,104 +21,188 @@ def show(name, var):
     cv2.namedWindow(name)
     cv2.moveWindow(name, 50, 50)
     cv2.imshow(name, resized)
-    cv2.waitKey(0)
+
+
+# non euclid distance
+# using too many pixel per meteric length
+# ned stands for none Euclid Distance
+def ned(point1, point2, clWidth, clHeight):
+    x1 = point1[0]
+    y1 = point1[1]
+
+    x2 = point2[0]
+    y2 = point2[1]
+
+    xdist = 0
+    previous_point = False
+    x = x1
+    for point in clWidth:
+
+        if previous_point == False:
+            previous_point = point
+
+        if x2 <= point[0]:
+            xdist += (x2-x)/((previous_point[2]+point[2])/2)
+            break
+        if x <= point[0]:
+            xdist += (point[0]-x)/((previous_point[2]+point[2])/2)
+            x = point[0]
+        if x2 <= point[1]:
+            xdist += (x2-x)/point[2]
+            break
+        if x <= point[1]:
+            xdist += (point[1]-x)/point[2]
+            x = point[1]
+        previous_point = point
+
+    ydist = 0
+    previous_point = False
+    y = y1
+    for point in clHeight:
+
+        if previous_point == False:
+            previous_point = point
+
+        if y2 <= point[0]:
+            ydist += (y2-y)/((previous_point[2]+point[2])/2)
+            break
+        if y <= point[0]:
+            ydist += (point[0]-y)/((previous_point[2]+point[2])/2)
+            y = point[0]
+        if y2 <= point[1]:
+            ydist += (y2-y)/point[2]
+            break
+        if y <= point[1]:
+            ydist += (point[1]-y)/point[2]
+            y = point[1]
+        previous_point = point
+
+    return dist.euclidean((0, 0), (xdist, ydist))
 
 
 ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--image", required=True,
+ap.add_argument("-w", "--webcam", type=int,
+                required=False, help="the webcam id")
+ap.add_argument("-i", "--image", required=False,
                 help="path to the input image")
-ap.add_argument("-c", "--calibre", type=float, required=True,
-                help="the length of the calibration square")
+ap.add_argument("-cw", "--calibrewidth", type=float, required=True,
+                help="the width of the calibration rectangle")
+
+ap.add_argument("-ch", "--calibreheight", type=float, required=True,
+                help="the height  of the calibration rectangle")
 
 args = vars(ap.parse_args())
 
-original_image = cv2.imread(args['image'])
-show('original_image', original_image)
 
-gray_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
-show('gray_image', gray_image)
+vidcheck = False
+vid = 0
 
+run = True
+original_image = ""
+if args["webcam"]:
+    vid = cv2.VideoCapture(args["webcam"])
+    vidcheck = True
+if args["image"]:
+    original_image = cv2.imread(args['image'])
+    print("yes")
 
-blur_image = cv2.GaussianBlur(gray_image, (7, 7), 0)
-show('blur_image', blur_image)
+while run:
 
+    if vidcheck:
+        ret, original_image = vid.read()
 
-minimum_treshold = 50
-maximum_treshold = 100
+    if args["image"]:
+        run = False
 
+    gray_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
 
-canny_image = cv2.Canny(blur_image, minimum_treshold, maximum_treshold)
-show('canny_image', canny_image)
+    blur_image = cv2.GaussianBlur(gray_image, (7, 7), 0)
 
+    minimum_treshold = 50
+    maximum_treshold = 100
 
-kernel_dilate = np.ones((5, 5))
-dilate_image = cv2.dilate(canny_image, kernel_dilate, iterations=3)
-show('dilate_image', dilate_image)
+    canny_image = cv2.Canny(blur_image, minimum_treshold, maximum_treshold)
 
+    kernel_dilate = np.ones((5, 5))
+    dilate_image = cv2.dilate(canny_image, kernel_dilate, iterations=3)
 
-kernel_erode = np.ones((5, 5))
-erode_image = cv2.erode(dilate_image, kernel_erode, iterations=2)
-show('erode_image', erode_image)
+    kernel_erode = np.ones((5, 5))
+    erode_image = cv2.erode(dilate_image, kernel_erode, iterations=2)
 
+    cnts = cv2.findContours(erode_image, cv2.RETR_EXTERNAL,
+                            cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
 
-cnts = cv2.findContours(erode_image, cv2.RETR_EXTERNAL,
-                        cv2.CHAIN_APPROX_SIMPLE)
-cnts = imutils.grab_contours(cnts)
+    if cnts:
+        (cnts, _) = contours.sort_contours(cnts)
+    pixelsPerMetricA = None
+    pixelsPerMetricB = None
 
-(cnts, _) = contours.sort_contours(cnts)
-pixelsPerMetricA = None
-pixelsPerMetricB = None
+    orig = original_image.copy()
 
-orig = original_image.copy()
-for c in cnts:
+    for c in cnts:
 
-    if cv2.contourArea(c) < 1000:
-        continue
+        if cv2.contourArea(c) < 100:
+            continue
 
-    box = cv2.minAreaRect(c)
-    box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
-    box = np.array(box, dtype="int")
+        box = cv2.minAreaRect(c)
+        box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
+        box = np.array(box, dtype="int")
 
-    box = perspective.order_points(box)
-    cv2.drawContours(orig, [box.astype("int")], -1, (0, 255, 0), 8)
+        box = perspective.order_points(box)
+        drawingSize = orig.shape[0]//400
+        cv2.drawContours(orig, [box.astype("int")], -
+                         1, (0, 255, 0), 2*drawingSize)
 
-    for (x, y) in box:
-        cv2.circle(orig, (int(x), int(y)), 10, (0, 0, 255), -1)
+        for (x, y) in box:
+            cv2.circle(orig, (int(x), int(y)), 3*drawingSize, (0, 0, 255), -1)
 
-    (tl, tr, br, bl) = box
-    (tltrX, tltrY) = midpoint(tl, tr)
-    (blbrX, blbrY) = midpoint(bl, br)
+        (tl, tr, br, bl) = box
+        (tltrX, tltrY) = midpoint(tl, tr)
+        (blbrX, blbrY) = midpoint(bl, br)
 
-    (tlblX, tlblY) = midpoint(tl, bl)
-    (trbrX, trbrY) = midpoint(tr, br)
+        (tlblX, tlblY) = midpoint(tl, bl)
+        (trbrX, trbrY) = midpoint(tr, br)
 
-    cv2.circle(orig, (int(tltrX), int(tltrY)), 10, (255, 0, 0), -1)
-    cv2.circle(orig, (int(blbrX), int(blbrY)), 10, (255, 0, 0), -1)
-    cv2.circle(orig, (int(tlblX), int(tlblY)), 10, (255, 0, 0), -1)
-    cv2.circle(orig, (int(trbrX), int(trbrY)), 10, (255, 0, 0), -1)
+        cv2.circle(orig, (int(tltrX), int(tltrY)),
+                   3*drawingSize, (255, 0, 0), -1)
+        cv2.circle(orig, (int(blbrX), int(blbrY)),
+                   3*drawingSize, (255, 0, 0), -1)
+        cv2.circle(orig, (int(tlblX), int(tlblY)),
+                   3*drawingSize, (255, 0, 0), -1)
+        cv2.circle(orig, (int(trbrX), int(trbrY)),
+                   3*drawingSize, (255, 0, 0), -1)
 
-    cv2.line(orig, (int(tltrX), int(tltrY)), (int(blbrX), int(blbrY)),
-             (255, 0, 255), 8)
-    cv2.line(orig, (int(tlblX), int(tlblY)), (int(trbrX), int(trbrY)),
-             (255, 0, 255), 8)
+        cv2.line(orig, (int(tltrX), int(tltrY)), (int(blbrX), int(blbrY)),
+                 (255, 0, 255), 2*drawingSize)
+        cv2.line(orig, (int(tlblX), int(tlblY)), (int(trbrX), int(trbrY)),
+                 (255, 0, 255), 2*drawingSize)
 
-    dA = dist.euclidean((tltrX, tltrY), (blbrX, blbrY))
-    dB = dist.euclidean((tlblX, tlblY), (trbrX, trbrY))
+        dA = dist.euclidean((tltrX, tltrY), (blbrX, blbrY))
+        dB = dist.euclidean((tlblX, tlblY), (trbrX, trbrY))
 
-    if pixelsPerMetricB is None:
-        pixelsPerMetricB = dB / args["calibre"]
+        if pixelsPerMetricB is None:
+            pixelsPerMetricB = dB / args["calibrewidth"]
 
-    if pixelsPerMetricA is None:
-        pixelsPerMetricA = dA / args["calibre"]
+        if pixelsPerMetricA is None:
+            pixelsPerMetricA = dA / args["calibreheight"]
 
-    dimA = dA / pixelsPerMetricA
-    dimB = dB / pixelsPerMetricB
+        dimA = dA / pixelsPerMetricA
+        dimB = dB / pixelsPerMetricB
 
-    cv2.putText(orig, "{:.2f}cm".format(dimB),
-                (int(tltrX - 15), int(tltrY - 10)), cv2.FONT_HERSHEY_SIMPLEX,
-                3, (0, 0, 0), 8)
-    cv2.putText(orig, "{:.2f}cm".format(dimA),
-                (int(trbrX + 10), int(trbrY)), cv2.FONT_HERSHEY_SIMPLEX,
-                3, (0, 0, 0), 8)
+        cv2.putText(orig, "{:.2f}cm".format(dimB),
+                    (int(tltrX - 15), int(tltrY - 10)), cv2.FONT_HERSHEY_SIMPLEX,
+                    drawingSize/2, (0, 0, 0), 2*drawingSize)
+        cv2.putText(orig, "{:.2f}cm".format(dimA),
+                    (int(trbrX + 10), int(trbrY)), cv2.FONT_HERSHEY_SIMPLEX,
+                    drawingSize/2, (0, 0, 0), 2*drawingSize)
 
     show("output", orig)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        run = False
+        break
+
+
+if "webcam" in args:
+    vid.release()
