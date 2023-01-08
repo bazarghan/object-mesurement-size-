@@ -5,6 +5,7 @@ import numpy as np
 import argparse
 import imutils
 import cv2
+import pandas as pd
 
 
 def midpoint(ptA, ptB):
@@ -26,13 +27,55 @@ def show(name, var):
 # non euclid distance
 # using too many pixel per meteric length
 # ned stands for none Euclid Distance
-def ned(point1, point2, clWidth, clHeight):
+
+
+def tolist(mydata):
+    mydata = mydata[1:-1]
+    data = mydata.split(',')
+    mylist = [float(i) for i in data]
+    return mylist
+
+
+def read_csv(filename):
+    my_df = pd.read_csv(filename)
+    my_list = my_df.to_numpy()
+    new_list = []
+    for i in my_list:
+        v = []
+        for j in i:
+            v.append(tolist(j))
+        new_list.append(v)
+
+    return new_list
+
+
+horizontal_list = read_csv("horizontal.csv")
+vertical_list = read_csv("vertical.csv")
+
+
+def ned(point1, point2):
+
     x1 = point1[0]
     y1 = point1[1]
+    wid = 0
+    hid = 0
 
+    for i in vertical_list[0]:
+        if y1 <= i[0]:
+            break
+        wid += 1
+    wid = min(wid, len(vertical_list[0])-1)
     x2 = point2[0]
     y2 = point2[1]
 
+    for j in horizontal_list[0]:
+        if x2 >= j[0]:
+            break
+        hid += 1
+    hid = min(hid, len(horizontal_list[0])-1)
+
+    clWidth = horizontal_list[wid]
+    clHeight = vertical_list[hid]
     xdist = 0
     previous_point = False
     x = x1
@@ -83,13 +126,9 @@ def ned(point1, point2, clWidth, clHeight):
 ap = argparse.ArgumentParser()
 ap.add_argument("-w", "--webcam", type=int,
                 required=False, help="the webcam id")
-ap.add_argument("-i", "--image", required=False,
-                help="path to the input image")
-ap.add_argument("-cw", "--calibrewidth", type=float, required=True,
-                help="the width of the calibration rectangle")
+ap.add_argumeqnt("-i", "--image", required=False,
+                 help="path to the input image")
 
-ap.add_argument("-ch", "--calibreheight", type=float, required=True,
-                help="the height  of the calibration rectangle")
 
 args = vars(ap.parse_args())
 
@@ -135,8 +174,6 @@ while run:
 
     if cnts:
         (cnts, _) = contours.sort_contours(cnts)
-    pixelsPerMetricA = None
-    pixelsPerMetricB = None
 
     orig = original_image.copy()
 
@@ -178,17 +215,8 @@ while run:
         cv2.line(orig, (int(tlblX), int(tlblY)), (int(trbrX), int(trbrY)),
                  (255, 0, 255), 2*drawingSize)
 
-        dA = dist.euclidean((tltrX, tltrY), (blbrX, blbrY))
-        dB = dist.euclidean((tlblX, tlblY), (trbrX, trbrY))
-
-        if pixelsPerMetricB is None:
-            pixelsPerMetricB = dB / args["calibrewidth"]
-
-        if pixelsPerMetricA is None:
-            pixelsPerMetricA = dA / args["calibreheight"]
-
-        dimA = dA / pixelsPerMetricA
-        dimB = dB / pixelsPerMetricB
+        dimA = ned((tltrX, tltrY), (blbrX, blbrY))
+        dimB = ned((tlblX, tlblY), (trbrX, trbrY))
 
         cv2.putText(orig, "{:.2f}cm".format(dimB),
                     (int(tltrX - 15), int(tltrY - 10)), cv2.FONT_HERSHEY_SIMPLEX,
@@ -198,11 +226,14 @@ while run:
                     drawingSize/2, (0, 0, 0), 2*drawingSize)
 
     show("output", orig)
+    if args["image"]:
+        show("output", orig)
+        cv2.waitKey(0)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         run = False
         break
 
 
-if "webcam" in args:
+if args["webcam"]:
     vid.release()
